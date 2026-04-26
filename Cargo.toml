@@ -8,7 +8,6 @@ repository = "https://github.com/birkenfeld/serde-pickle"
 documentation = "http://docs.rs/serde-pickle"
 keywords = ["pickle", "python", "serde", "serialization"]
 edition = "2018"
-rust-version = "1.63"
 
 [dependencies]
 serde = "1.0.209"
