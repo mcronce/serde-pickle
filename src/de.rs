@@ -126,6 +126,7 @@ pub struct Deserializer<R: Read> {
     memo: BTreeMap<MemoId, (Value, i32)>, // pickle memo (value, number of refs)
     stack: Vec<Value>,                    // topmost items on the stack
     stacks: Vec<Vec<Value>>,              // items further down the stack, between MARKs
+    reusable_buffer: Vec<u8>,
 }
 
 impl<R: Read> Deserializer<R> {
@@ -139,6 +140,7 @@ impl<R: Read> Deserializer<R> {
             stack: Vec::with_capacity(128),
             stacks: Vec::with_capacity(16),
             options,
+            reusable_buffer: Vec::with_capacity(16),
         }
     }
 
@@ -335,56 +337,65 @@ impl<R: Read> Deserializer<R> {
                     self.stack.push(Value::I64(LittleEndian::read_u16(&bytes).into()));
                 }
                 LONG1 => {
-                    let bytes = self.read_u8_prefixed_bytes()?;
-                    let long = self.decode_binary_long(bytes);
+                    self.read_u8_prefixed_bytes()?;
+                    let long = self.decode_binary_long(self.reusable_buffer.as_slice());
                     self.stack.push(long);
                 }
                 LONG4 => {
-                    let bytes = self.read_i32_prefixed_bytes()?;
-                    let long = self.decode_binary_long(bytes);
+                    self.read_i32_prefixed_bytes()?;
+                    let long = self.decode_binary_long(self.reusable_buffer.as_slice());
                     self.stack.push(long);
                 }
 
                 // Length-prefixed (byte)strings
                 SHORT_BINBYTES => {
-                    let string = self.read_u8_prefixed_bytes()?;
+                    self.read_u8_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     self.stack.push(Value::Bytes(string));
                 }
                 BINBYTES => {
-                    let string = self.read_u32_prefixed_bytes()?;
+                    self.read_u32_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     self.stack.push(Value::Bytes(string));
                 }
                 BINBYTES8 => {
-                    let string = self.read_u64_prefixed_bytes()?;
+                    self.read_u64_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     self.stack.push(Value::Bytes(string));
                 }
                 SHORT_BINSTRING => {
-                    let string = self.read_u8_prefixed_bytes()?;
+                    self.read_u8_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     let decoded = self.decode_string(string)?;
                     self.stack.push(decoded);
                 }
                 BINSTRING => {
-                    let string = self.read_i32_prefixed_bytes()?;
+                    self.read_i32_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     let decoded = self.decode_string(string)?;
                     self.stack.push(decoded);
                 }
                 SHORT_BINUNICODE => {
-                    let string = self.read_u8_prefixed_bytes()?;
+                    self.read_u8_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     let decoded = self.decode_unicode(string)?;
                     self.stack.push(decoded);
                 }
                 BINUNICODE => {
-                    let string = self.read_u32_prefixed_bytes()?;
+                    self.read_u32_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     let decoded = self.decode_unicode(string)?;
                     self.stack.push(decoded);
                 }
                 BINUNICODE8 => {
-                    let string = self.read_u64_prefixed_bytes()?;
+                    self.read_u64_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     let decoded = self.decode_unicode(string)?;
                     self.stack.push(decoded);
                 }
                 BYTEARRAY8 => {
-                    let string = self.read_u64_prefixed_bytes()?;
+                    self.read_u64_prefixed_bytes()?;
+                    let string = self.take_reusable_buffer();
                     self.stack.push(Value::Bytes(string));
                 }
 
@@ -686,6 +697,12 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
+    fn take_reusable_buffer(&mut self) -> Vec<u8> {
+        let buffer = core::mem::take(&mut self.reusable_buffer);
+        self.reusable_buffer.reserve(16);
+        buffer
+    }
+
     #[inline]
     fn read_byte(&mut self) -> Result<u8> {
         let mut buf = [0];
@@ -700,12 +717,12 @@ impl<R: Read> Deserializer<R> {
     }
 
     #[inline]
-    fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>> {
-        let mut buf = Vec::new();
-        match self.rdr.by_ref().take(n as u64).read_to_end(&mut buf) {
+    fn read_bytes(&mut self, n: usize) -> Result<()> {
+        self.reusable_buffer.clear();
+        match self.rdr.by_ref().take(n as u64).read_to_end(&mut self.reusable_buffer) {
             Ok(m) if n == m => {
                 self.pos += n;
-                Ok(buf)
+                Ok(())
             }
             Ok(_) => self.error(ErrorCode::EOFWhileParsing),
             Err(err) => Err(Error::Io(err)),
@@ -766,26 +783,26 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
-    fn read_i32_prefixed_bytes(&mut self) -> Result<Vec<u8>> {
+    fn read_i32_prefixed_bytes(&mut self) -> Result<()> {
         let lenbytes = self.read_fixed_4_bytes()?;
         match LittleEndian::read_i32(&lenbytes) {
-            0 => Ok(vec![]),
+            0 => Ok(()),
             l if l < 0 => self.error(ErrorCode::NegativeLength),
             l => self.read_bytes(l as usize),
         }
     }
 
-    fn read_u64_prefixed_bytes(&mut self) -> Result<Vec<u8>> {
+    fn read_u64_prefixed_bytes(&mut self) -> Result<()> {
         let lenbytes = self.read_fixed_8_bytes()?;
         self.read_bytes(LittleEndian::read_u64(&lenbytes) as usize)
     }
 
-    fn read_u32_prefixed_bytes(&mut self) -> Result<Vec<u8>> {
+    fn read_u32_prefixed_bytes(&mut self) -> Result<()> {
         let lenbytes = self.read_fixed_4_bytes()?;
         self.read_bytes(LittleEndian::read_u32(&lenbytes) as usize)
     }
 
-    fn read_u8_prefixed_bytes(&mut self) -> Result<Vec<u8>> {
+    fn read_u8_prefixed_bytes(&mut self) -> Result<()> {
         let lenbyte = self.read_byte()?;
         self.read_bytes(lenbyte as usize)
     }
@@ -917,11 +934,11 @@ impl<R: Read> Deserializer<R> {
     }
 
     // Decode a binary-encoded long integer.
-    fn decode_binary_long(&self, bytes: Vec<u8>) -> Value {
+    fn decode_binary_long(&self, bytes: &[u8]) -> Value {
         // BigInt::from_bytes_le doesn't like a sign bit in the bytes, therefore
         // we have to extract that ourselves and do the two-s complement.
         let negative = !bytes.is_empty() && (bytes[bytes.len() - 1] & 0x80 != 0);
-        let mut val = BigInt::from_bytes_le(Sign::Plus, &bytes);
+        let mut val = BigInt::from_bytes_le(Sign::Plus, bytes);
         if negative {
             val -= BigInt::from(1) << (bytes.len() * 8);
         }
