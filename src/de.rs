@@ -691,10 +691,14 @@ impl<R: Read> Deserializer<R> {
 
     fn read_another_line(&mut self) -> Result<usize> {
         match self.rdr.read_until(b'\n', &mut self.reusable_buffer) {
-            Ok(_) => {
+            Ok(mut count) => {
                 self.pos += self.reusable_buffer.len();
-                self.reusable_buffer.pop(); // remove newline
-                let mut count = self.reusable_buffer.len();
+                // remove newline; the check only exists in case we hit the end of the reader
+                // before we hit a newline.
+                if self.reusable_buffer.last() == Some(&b'\n') {
+                    self.reusable_buffer.pop();
+                    count -= 1;
+                }
                 if self.reusable_buffer.last() == Some(&b'\r') {
                     self.reusable_buffer.pop();
                     count -= 1;
