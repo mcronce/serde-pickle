@@ -23,7 +23,7 @@ fn gen_value<G: Gen>(g: &mut G, depth: u32) -> Value {
         3 => Value::Int(gen_bigint(g)),
         4 => Value::F64(Arbitrary::arbitrary(g)),
         5 => Value::Bytes(Arbitrary::arbitrary(g)),
-        6 => Value::String(Arbitrary::arbitrary(g)),
+        6 => Value::String(String::arbitrary(g).into()),
         // recursive variants
         7 => Value::List(gen_vec(g, depth - 1)),
         8 => Value::Tuple(gen_vec(g, depth - 1)),
@@ -68,7 +68,7 @@ fn gen_hvalue<G: Gen>(g: &mut G, depth: u32) -> HashableValue {
         }
         4 => HashableValue::F64(Arbitrary::arbitrary(g)),
         5 => HashableValue::Bytes(Arbitrary::arbitrary(g)),
-        6 => HashableValue::String(Arbitrary::arbitrary(g)),
+        6 => HashableValue::String(String::arbitrary(g).into()),
         // recursive variants
         7 => HashableValue::Tuple(gen_hvec(g, depth - 1)),
         8 => HashableValue::FrozenSet(gen_hvec(g, depth - 1).into_iter().collect()),
@@ -97,7 +97,9 @@ impl Arbitrary for Value {
             Value::Int(_) => empty_shrinker(),
             Value::F64(v) => Box::new(Arbitrary::shrink(&v).map(Value::F64)),
             Value::Bytes(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Bytes)),
-            Value::String(ref v) => Box::new(Arbitrary::shrink(v).map(Value::String)),
+            Value::String(ref v) => {
+                Box::new(Arbitrary::shrink(&v.to_string()).map(Into::into).map(Value::String))
+            }
             Value::List(ref v) => Box::new(Arbitrary::shrink(v).map(Value::List)),
             Value::Tuple(ref v) => Box::new(Arbitrary::shrink(v).map(Value::List)),
             Value::Set(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Set)),
@@ -120,7 +122,9 @@ impl Arbitrary for HashableValue {
             HashableValue::Int(_) => empty_shrinker(),
             HashableValue::F64(v) => Box::new(Arbitrary::shrink(&v).map(HashableValue::F64)),
             HashableValue::Bytes(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Bytes)),
-            HashableValue::String(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::String)),
+            HashableValue::String(ref v) => {
+                Box::new(Arbitrary::shrink(&v.to_string()).map(Into::into).map(HashableValue::String))
+            }
             HashableValue::Tuple(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Tuple)),
             HashableValue::FrozenSet(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::FrozenSet)),
         }

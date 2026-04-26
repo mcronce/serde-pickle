@@ -6,6 +6,7 @@
 
 //! Python values, and serialization instances for them.
 
+use compact_str::CompactString;
 use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::cmp::Ordering;
@@ -39,7 +40,7 @@ pub enum Value {
     /// Bytestring
     Bytes(Vec<u8>),
     /// Unicode string
-    String(String),
+    String(CompactString),
     /// List
     List(Vec<Value>),
     /// Tuple
@@ -74,7 +75,7 @@ pub enum HashableValue {
     /// Bytestring
     Bytes(Vec<u8>),
     /// Unicode string
-    String(String),
+    String(CompactString),
     /// Tuple
     Tuple(Vec<HashableValue>),
     /// Frozen (immutable) set

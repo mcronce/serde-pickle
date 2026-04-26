@@ -11,6 +11,7 @@
 //! `value_from_*` functions exported here, not the generic `from_*` functions.
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use compact_str::CompactString;
 use iter_read::{IterRead, IterReadItem};
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
@@ -63,7 +64,7 @@ enum Value {
     Int(BigInt),
     F64(f64),
     Bytes(Vec<u8>),
-    String(String),
+    String(CompactString),
     List(Vec<Value>),
     Tuple(Vec<Value>),
     Set(Vec<Value>),
@@ -477,14 +478,14 @@ impl<R: Read> Deserializer<R> {
                 }
                 STACK_GLOBAL => {
                     let globname = match self.pop_resolve()? {
-                        Value::String(string) => string.into_bytes(),
+                        Value::String(string) => string,
                         other => return Self::stack_error("string", &other, self.pos),
                     };
                     let modname = match self.pop_resolve()? {
-                        Value::String(string) => string.into_bytes(),
+                        Value::String(string) => string,
                         other => return Self::stack_error("string", &other, self.pos),
                     };
-                    let value = self.decode_global(modname.as_slice(), globname.as_slice())?;
+                    let value = self.decode_global(modname.as_bytes(), globname.as_bytes())?;
                     self.stack.push(value);
                 }
                 REDUCE => {
@@ -907,7 +908,7 @@ impl<R: Read> Deserializer<R> {
     // in this way, too.
     fn decode_escaped_unicode(&self) -> Result<Value> {
         let s = self.reusable_buffer.as_slice();
-        let mut result = String::with_capacity(s.len());
+        let mut result = CompactString::with_capacity(s.len());
         let mut iter = s.iter();
         while let Some(&b) = iter.next() {
             match b {
@@ -947,7 +948,7 @@ impl<R: Read> Deserializer<R> {
 
     // Decode a Unicode string from UTF-8.
     fn decode_unicode(&self, string: Vec<u8>) -> Result<Value> {
-        match String::from_utf8(string) {
+        match CompactString::from_utf8(string) {
             Ok(v) => Ok(Value::String(v)),
             Err(_) => self.error(ErrorCode::StringNotUTF8),
         }
@@ -1223,7 +1224,7 @@ impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for &'a mut Deserializer<R> {
             }
             Value::F64(v) => visitor.visit_f64(v),
             Value::Bytes(v) => visitor.visit_byte_buf(v),
-            Value::String(v) => visitor.visit_string(v),
+            Value::String(v) => visitor.visit_str(v.as_str()),
             Value::List(v) => {
                 let len = v.len();
                 visitor.visit_seq(SeqAccess { de: self, iter: v.into_iter(), len })

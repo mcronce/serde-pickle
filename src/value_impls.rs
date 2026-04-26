@@ -6,6 +6,7 @@
 
 //! Serializer/Deserializer implementations for `value::Value`.
 
+use compact_str::CompactString;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use serde::de::Visitor;
@@ -58,12 +59,12 @@ impl<'de> de::Deserialize<'de> for Value {
 
             #[inline]
             fn visit_str<E: de::Error>(self, value: &str) -> StdResult<Value, E> {
-                self.visit_string(String::from(value))
+				Ok(Value::String(value.into()))
             }
 
             #[inline]
-            fn visit_string<E>(self, value: String) -> StdResult<Value, E> {
-                Ok(Value::String(value))
+            fn visit_string<E: de::Error>(self, value: String) -> StdResult<Value, E> {
+				self.visit_str(value.as_str())
             }
 
             #[inline]
@@ -153,12 +154,12 @@ impl<'de> de::Deserialize<'de> for HashableValue {
 
             #[inline]
             fn visit_str<E: de::Error>(self, value: &str) -> StdResult<HashableValue, E> {
-                self.visit_string(String::from(value))
+				Ok(HashableValue::String(value.into()))
             }
 
             #[inline]
-            fn visit_string<E>(self, value: String) -> StdResult<HashableValue, E> {
-                Ok(HashableValue::String(value))
+            fn visit_string<E: de::Error>(self, value: String) -> StdResult<HashableValue, E> {
+				self.visit_str(value.as_str())
             }
 
             #[inline]
@@ -236,7 +237,7 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Deserializer {
             }
             Value::F64(v) => visitor.visit_f64(v),
             Value::Bytes(v) => visitor.visit_byte_buf(v),
-            Value::String(v) => visitor.visit_string(v),
+            Value::String(v) => visitor.visit_str(v.as_str()),
             Value::List(v) => {
                 let len = v.len();
                 visitor.visit_seq(SeqDeserializer { de: self, iter: v.into_iter(), len })
@@ -634,14 +635,14 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     #[inline]
     fn serialize_char(self, value: char) -> Result<Value> {
-        let mut s = String::new();
+        let mut s = CompactString::default();
         s.push(value);
         Ok(Value::String(s))
     }
 
     #[inline]
     fn serialize_str(self, value: &str) -> Result<Value> {
-        Ok(Value::String(String::from(value)))
+        Ok(Value::String(value.into()))
     }
 
     #[inline]
