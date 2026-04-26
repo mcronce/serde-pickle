@@ -56,6 +56,7 @@ mod struct_tests {
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[expect(dead_code)]
     struct Outer {
         inner: Vec<Inner>,
     }

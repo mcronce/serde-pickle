@@ -1,6 +1,5 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use serde_pickle;
 use serde_pickle::*;
 use std::collections::BTreeMap;
 use std::fs;
