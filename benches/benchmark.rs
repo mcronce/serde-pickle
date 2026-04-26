@@ -1,7 +1,8 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use serde::Deserialize;
 use serde_pickle::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 
 // TODO: These macros are redefined from tests
@@ -135,6 +136,71 @@ fn unpickle_simple_tuple(c: &mut Criterion) {
     });
 }
 
+fn unpickle_archipelago_data(c: &mut Criterion) {
+    use arcstr::ArcStr;
+
+    #[derive(Deserialize)]
+    #[expect(dead_code)] // We never read the fields
+    struct Config {
+        slot_info: HashMap<u8, (String, String)>,
+        locations: HashMap<u8, HashMap<u64, (u64, u8, u8)>>,
+    }
+
+    #[derive(Deserialize)]
+    #[expect(dead_code)] // We never read the fields
+    struct ConfigWithArcStr {
+        slot_info: HashMap<u8, (ArcStr, ArcStr)>,
+        locations: HashMap<u8, HashMap<u64, (u64, u8, u8)>>,
+    }
+
+    #[derive(Deserialize)]
+    #[expect(dead_code)] // We never read the fields
+    struct Save {
+        location_checks: HashMap<(u8, u8), HashSet<u64>>,
+    }
+
+    let config = fs::read("benches/data/archipelago-config.pickle").unwrap();
+    let save = fs::read("benches/data/archipelago-save.pickle").unwrap();
+
+    c.bench_function("unpickle_archipelago_config", |b| {
+        b.iter(|| {
+            let _: Config = serde_pickle::de::from_slice(
+                black_box(config.as_slice()),
+                DeOptions::new()
+                    .decode_strings()
+                    .keep_restore_state()
+                    .replace_unresolved_globals(),
+            )
+            .unwrap();
+        })
+    });
+    c.bench_function("unpickle_archipelago_config_with_arcstr", |b| {
+        b.iter(|| {
+            let _: ConfigWithArcStr = serde_pickle::de::from_slice(
+                black_box(config.as_slice()),
+                DeOptions::new()
+                    .decode_strings()
+                    .keep_restore_state()
+                    .replace_unresolved_globals(),
+            )
+            .unwrap();
+        })
+    });
+    c.bench_function("unpickle_archipelago_save", |b| {
+        b.iter(|| {
+            let _: Save = serde_pickle::de::from_slice(
+                black_box(save.as_slice()),
+                DeOptions::new()
+                    .decode_strings()
+                    .keep_restore_state()
+                    .replace_unresolved_globals()
+                    .replace_recursive_structures(),
+            )
+            .unwrap();
+        })
+    });
+}
+
 fn pickle_list(c: &mut Criterion) {
     let mut list = Vec::with_capacity(1000);
     for i in 0..1000 {
@@ -165,8 +231,15 @@ fn bench_picklefile(c: &mut Criterion, filename: &str) {
     // Run the benchmark
     c.bench_function(filename, |b| {
         b.iter(|| {
-            serde_pickle::de::value_from_slice(black_box(&contents), serde_pickle::de::DeOptions::new())
-                .unwrap()
+            serde_pickle::de::value_from_slice(
+                black_box(&contents),
+                serde_pickle::de::DeOptions::new()
+                    .decode_strings()
+                    .keep_restore_state()
+                    .replace_unresolved_globals()
+                    .replace_recursive_structures(),
+            )
+            .unwrap()
         })
     });
 }
@@ -175,6 +248,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     bench_picklefile(c, "benches/data/biglist.pickle");
     bench_picklefile(c, "benches/data/manyrefs.pickle");
     bench_picklefile(c, "benches/data/manystrings.pickle");
+    bench_picklefile(c, "benches/data/archipelago-config.pickle");
+    bench_picklefile(c, "benches/data/archipelago-save.pickle");
 
     for i in 0..=5 {
         bench_picklefile(c, &format!("test/data/tests_py3_proto{}.pickle", i));
@@ -189,6 +264,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     unpickle_nested_list(c);
     unpickle_nested_list_no_memo(c);
     unpickle_simple_tuple(c);
+    unpickle_archipelago_data(c);
     pickle_list(c);
     pickle_dict(c);
 }
