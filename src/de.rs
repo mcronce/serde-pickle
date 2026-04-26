@@ -252,7 +252,7 @@ impl<R: Read> Deserializer<R> {
                 // Memo saving ops
                 PUT => {
                     self.read_line()?;
-                    let memo_id = self.parse_ascii(self.reusable_buffer.as_slice())?;
+                    let memo_id = self.parse_ascii()?;
                     self.memoize(memo_id)?;
                 }
                 BINPUT => {
@@ -272,7 +272,7 @@ impl<R: Read> Deserializer<R> {
                 // Memo getting ops
                 GET => {
                     self.read_line()?;
-                    let memo_id = self.parse_ascii(self.reusable_buffer.as_slice())?;
+                    let memo_id = self.parse_ascii()?;
                     self.push_memo_ref(memo_id)?;
                 }
                 BINGET => {
@@ -293,29 +293,29 @@ impl<R: Read> Deserializer<R> {
                 // ASCII-formatted numbers
                 INT => {
                     self.read_line()?;
-                    let val = self.decode_text_int(self.reusable_buffer.as_slice())?;
+                    let val = self.decode_text_int()?;
                     self.stack.push(val);
                 }
                 LONG => {
                     self.read_line()?;
-                    let long = self.decode_text_long(self.reusable_buffer.as_slice())?;
+                    let long = self.decode_text_long()?;
                     self.stack.push(long);
                 }
                 FLOAT => {
                     self.read_line()?;
-                    let f = self.parse_ascii(self.reusable_buffer.as_slice())?;
+                    let f = self.parse_ascii()?;
                     self.stack.push(Value::F64(f));
                 }
 
                 // ASCII-formatted strings
                 STRING => {
                     self.read_line()?;
-                    let string = self.decode_escaped_string(self.reusable_buffer.as_slice())?;
+                    let string = self.decode_escaped_string()?;
                     self.stack.push(string);
                 }
                 UNICODE => {
                     self.read_line()?;
-                    let string = self.decode_escaped_unicode(self.reusable_buffer.as_slice())?;
+                    let string = self.decode_escaped_unicode()?;
                     self.stack.push(string);
                 }
 
@@ -809,41 +809,48 @@ impl<R: Read> Deserializer<R> {
     }
 
     // Parse an expected ASCII literal from the stream or raise an error.
-    fn parse_ascii<T: FromStr>(&self, bytes: &[u8]) -> Result<T> {
-        match str::from_utf8(bytes).unwrap_or("").parse() {
+    fn parse_ascii<T: FromStr>(&mut self) -> Result<T> {
+        match str::from_utf8(self.reusable_buffer.as_slice()).unwrap_or("").parse() {
             Ok(v) => Ok(v),
-            Err(_) => self.error(ErrorCode::InvalidLiteral(bytes.to_owned())),
+            Err(_) => {
+                let buffer = self.take_reusable_buffer();
+                self.error(ErrorCode::InvalidLiteral(buffer))
+            }
         }
     }
 
-    // Decode a text-encoded integer.
-    fn decode_text_int(&self, line: &[u8]) -> Result<Value> {
+    // Decode a text-encoded integer.  self.reusable_buffer should be a text line.
+    fn decode_text_int(&mut self) -> Result<Value> {
         // Handle protocol 1 way of spelling true/false
-        Ok(if line == b"00" {
+        Ok(if self.reusable_buffer == b"00" {
             Value::Bool(false)
-        } else if line == b"01" {
+        } else if self.reusable_buffer == b"01" {
             Value::Bool(true)
         } else {
-            let i = self.parse_ascii(line)?;
+            let i = self.parse_ascii()?;
             Value::I64(i)
         })
     }
 
-    // Decode a text-encoded long integer.
-    fn decode_text_long(&self, mut line: &[u8]) -> Result<Value> {
+    // Decode a text-encoded long integer.  self.reusable_buffer should be a text line.
+    fn decode_text_long(&mut self) -> Result<Value> {
         // Remove "L" suffix.
-        if line.last() == Some(&b'L') {
-            line = &line[..line.len() - 1];
+        if self.reusable_buffer.last() == Some(&b'L') {
+            self.reusable_buffer.pop();
         }
-        match BigInt::parse_bytes(line, 10) {
+        match BigInt::parse_bytes(self.reusable_buffer.as_slice(), 10) {
             Some(i) => Ok(Value::Int(i)),
-            None => self.error(ErrorCode::InvalidLiteral(line.to_owned())),
+            None => {
+                let buffer = self.take_reusable_buffer();
+                self.error(ErrorCode::InvalidLiteral(buffer))
+            }
         }
     }
 
     // Decode an escaped string.  These are encoded with "normal" Python string
     // escape rules.
-    fn decode_escaped_string(&self, slice: &[u8]) -> Result<Value> {
+    fn decode_escaped_string(&self) -> Result<Value> {
+        let slice = self.reusable_buffer.as_slice();
         // Remove quotes if they appear.
         let slice = if (slice.len() >= 2)
             && (slice[0] == slice[slice.len() - 1])
@@ -887,7 +894,8 @@ impl<R: Read> Deserializer<R> {
     // Decode escaped Unicode strings. These are encoded with "raw-unicode-escape",
     // which only knows the \uXXXX and \UYYYYYYYY escapes. The backslash is escaped
     // in this way, too.
-    fn decode_escaped_unicode(&self, s: &[u8]) -> Result<Value> {
+    fn decode_escaped_unicode(&self) -> Result<Value> {
+        let s = self.reusable_buffer.as_slice();
         let mut result = String::with_capacity(s.len());
         let mut iter = s.iter();
         while let Some(&b) = iter.next() {
