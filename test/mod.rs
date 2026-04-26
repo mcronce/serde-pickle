@@ -424,4 +424,9 @@ mod value_tests {
             from_slice(&data, DeOptions::new().replace_unresolved_globals()).unwrap();
         assert_eq!(serde_val, serde_json::Value::Null);
     }
+
+    #[test]
+    fn test_value_stack_size() {
+        assert_eq!(core::mem::size_of::<Value>(), 32);
+    }
 }
