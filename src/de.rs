@@ -251,8 +251,8 @@ impl<R: Read> Deserializer<R> {
 
                 // Memo saving ops
                 PUT => {
-                    let bytes = self.read_line()?;
-                    let memo_id = self.parse_ascii(bytes)?;
+                    self.read_line()?;
+                    let memo_id = self.parse_ascii(self.reusable_buffer.as_slice())?;
                     self.memoize(memo_id)?;
                 }
                 BINPUT => {
@@ -271,8 +271,8 @@ impl<R: Read> Deserializer<R> {
 
                 // Memo getting ops
                 GET => {
-                    let bytes = self.read_line()?;
-                    let memo_id = self.parse_ascii(bytes)?;
+                    self.read_line()?;
+                    let memo_id = self.parse_ascii(self.reusable_buffer.as_slice())?;
                     self.push_memo_ref(memo_id)?;
                 }
                 BINGET => {
@@ -292,30 +292,30 @@ impl<R: Read> Deserializer<R> {
 
                 // ASCII-formatted numbers
                 INT => {
-                    let line = self.read_line()?;
-                    let val = self.decode_text_int(line)?;
+                    self.read_line()?;
+                    let val = self.decode_text_int(self.reusable_buffer.as_slice())?;
                     self.stack.push(val);
                 }
                 LONG => {
-                    let line = self.read_line()?;
-                    let long = self.decode_text_long(line)?;
+                    self.read_line()?;
+                    let long = self.decode_text_long(self.reusable_buffer.as_slice())?;
                     self.stack.push(long);
                 }
                 FLOAT => {
-                    let line = self.read_line()?;
-                    let f = self.parse_ascii(line)?;
+                    self.read_line()?;
+                    let f = self.parse_ascii(self.reusable_buffer.as_slice())?;
                     self.stack.push(Value::F64(f));
                 }
 
                 // ASCII-formatted strings
                 STRING => {
-                    let line = self.read_line()?;
-                    let string = self.decode_escaped_string(&line)?;
+                    self.read_line()?;
+                    let string = self.decode_escaped_string(self.reusable_buffer.as_slice())?;
                     self.stack.push(string);
                 }
                 UNICODE => {
-                    let line = self.read_line()?;
-                    let string = self.decode_escaped_unicode(&line)?;
+                    self.read_line()?;
+                    let string = self.decode_escaped_unicode(self.reusable_buffer.as_slice())?;
                     self.stack.push(string);
                 }
 
@@ -468,9 +468,10 @@ impl<R: Read> Deserializer<R> {
                 // Arbitrary module globals, used here for unpickling set and frozenset
                 // from protocols < 4
                 GLOBAL => {
-                    let modname = self.read_line()?;
-                    let globname = self.read_line()?;
-                    let value = self.decode_global(modname, globname)?;
+                    self.read_line()?;
+                    let modname = self.take_reusable_buffer();
+                    self.read_line()?;
+                    let value = self.decode_global(modname.as_slice(), self.reusable_buffer.as_slice())?;
                     self.stack.push(value);
                 }
                 STACK_GLOBAL => {
@@ -482,7 +483,7 @@ impl<R: Read> Deserializer<R> {
                         Value::String(string) => string.into_bytes(),
                         other => return Self::stack_error("string", &other, self.pos),
                     };
-                    let value = self.decode_global(modname, globname)?;
+                    let value = self.decode_global(modname.as_slice(), globname.as_slice())?;
                     self.stack.push(value);
                 }
                 REDUCE => {
@@ -682,24 +683,24 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
-    fn read_line(&mut self) -> Result<Vec<u8>> {
-        let mut buf = Vec::with_capacity(16);
-        match self.rdr.read_until(b'\n', &mut buf) {
+    fn read_line(&mut self) -> Result<()> {
+        self.reusable_buffer.clear();
+        match self.rdr.read_until(b'\n', &mut self.reusable_buffer) {
             Ok(_) => {
-                self.pos += buf.len();
-                buf.pop(); // remove newline
-                if buf.last() == Some(&b'\r') {
-                    buf.pop();
+                self.pos += self.reusable_buffer.len();
+                self.reusable_buffer.pop(); // remove newline
+                if self.reusable_buffer.last() == Some(&b'\r') {
+                    self.reusable_buffer.pop();
                 }
-                Ok(buf)
+                Ok(())
             }
             Err(err) => Err(Error::Io(err)),
         }
     }
 
     fn take_reusable_buffer(&mut self) -> Vec<u8> {
-        let buffer = core::mem::take(&mut self.reusable_buffer);
-        self.reusable_buffer.reserve(16);
+        let mut buffer = Vec::with_capacity(16);
+        core::mem::swap(&mut buffer, &mut self.reusable_buffer);
         buffer
     }
 
@@ -808,15 +809,15 @@ impl<R: Read> Deserializer<R> {
     }
 
     // Parse an expected ASCII literal from the stream or raise an error.
-    fn parse_ascii<T: FromStr>(&self, bytes: Vec<u8>) -> Result<T> {
-        match str::from_utf8(&bytes).unwrap_or("").parse() {
+    fn parse_ascii<T: FromStr>(&self, bytes: &[u8]) -> Result<T> {
+        match str::from_utf8(bytes).unwrap_or("").parse() {
             Ok(v) => Ok(v),
-            Err(_) => self.error(ErrorCode::InvalidLiteral(bytes)),
+            Err(_) => self.error(ErrorCode::InvalidLiteral(bytes.to_owned())),
         }
     }
 
     // Decode a text-encoded integer.
-    fn decode_text_int(&self, line: Vec<u8>) -> Result<Value> {
+    fn decode_text_int(&self, line: &[u8]) -> Result<Value> {
         // Handle protocol 1 way of spelling true/false
         Ok(if line == b"00" {
             Value::Bool(false)
@@ -829,14 +830,14 @@ impl<R: Read> Deserializer<R> {
     }
 
     // Decode a text-encoded long integer.
-    fn decode_text_long(&self, mut line: Vec<u8>) -> Result<Value> {
+    fn decode_text_long(&self, mut line: &[u8]) -> Result<Value> {
         // Remove "L" suffix.
         if line.last() == Some(&b'L') {
-            line.pop();
+            line = &line[..line.len() - 1];
         }
-        match BigInt::parse_bytes(&line, 10) {
+        match BigInt::parse_bytes(line, 10) {
             Some(i) => Ok(Value::Int(i)),
-            None => self.error(ErrorCode::InvalidLiteral(line)),
+            None => self.error(ErrorCode::InvalidLiteral(line.to_owned())),
         }
     }
 
@@ -1002,8 +1003,8 @@ impl<R: Read> Deserializer<R> {
     }
 
     // Push the Value::Global referenced by modname and globname.
-    fn decode_global(&mut self, modname: Vec<u8>, globname: Vec<u8>) -> Result<Value> {
-        let value = match (&*modname, &*globname) {
+    fn decode_global(&self, modname: &[u8], globname: &[u8]) -> Result<Value> {
+        let value = match (modname, globname) {
             (b"_codecs", b"encode") => Value::Global(Global::Encode),
             (b"copy_reg", b"_reconstructor") | (b"copyreg", b"_reconstructor") => {
                 Value::Global(Global::Reconst)
