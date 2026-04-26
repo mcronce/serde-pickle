@@ -468,10 +468,11 @@ impl<R: Read> Deserializer<R> {
                 // Arbitrary module globals, used here for unpickling set and frozenset
                 // from protocols < 4
                 GLOBAL => {
-                    self.read_line()?;
-                    let modname = self.take_reusable_buffer();
-                    self.read_line()?;
-                    let value = self.decode_global(modname.as_slice(), self.reusable_buffer.as_slice())?;
+                    let modname_len = self.read_line()?;
+                    self.read_another_line()?;
+                    let modname = &self.reusable_buffer[..modname_len];
+                    let globname = &self.reusable_buffer[modname_len..];
+                    let value = self.decode_global(modname, globname)?;
                     self.stack.push(value);
                 }
                 STACK_GLOBAL => {
@@ -683,16 +684,22 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
-    fn read_line(&mut self) -> Result<()> {
+    fn read_line(&mut self) -> Result<usize> {
         self.reusable_buffer.clear();
+        self.read_another_line()
+    }
+
+    fn read_another_line(&mut self) -> Result<usize> {
         match self.rdr.read_until(b'\n', &mut self.reusable_buffer) {
             Ok(_) => {
                 self.pos += self.reusable_buffer.len();
                 self.reusable_buffer.pop(); // remove newline
+                let mut count = self.reusable_buffer.len();
                 if self.reusable_buffer.last() == Some(&b'\r') {
                     self.reusable_buffer.pop();
+                    count -= 1;
                 }
-                Ok(())
+                Ok(count)
             }
             Err(err) => Err(Error::Io(err)),
         }
