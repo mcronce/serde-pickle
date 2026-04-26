@@ -1,11 +1,9 @@
-#![cfg(feature = "criterion-bench")]
-
 use byteorder::{LittleEndian, WriteBytesExt};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use serde_pickle;
 use serde_pickle::*;
 use std::collections::BTreeMap;
-use std::io::Read;
+use std::fs;
 
 // TODO: These macros are redefined from tests
 macro_rules! pyobj {
@@ -163,9 +161,7 @@ fn pickle_dict(c: &mut Criterion) {
 
 fn bench_picklefile(c: &mut Criterion, filename: &str) {
     // Load the picklefile
-    let mut contents = vec![];
-    let mut f = std::fs::File::open(filename).unwrap();
-    f.read_to_end(&mut contents).unwrap();
+    let contents = fs::read(filename).unwrap();
 
     // Run the benchmark
     c.bench_function(filename, |b| {

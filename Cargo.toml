@@ -16,13 +16,10 @@ byteorder = "1.5.0"
 num-bigint = "0.4.4"
 num-traits = "0.2.18"
 iter-read = "1.1.0"
-criterion = { version = "0.4", optional = true }
-
-[features]
-criterion-bench = ["criterion"]
 
 # For the example binary and the test suite.
 [dev-dependencies]
+criterion = "0.4"
 serde_derive = "1.0.209"
 serde_json = "1.0.127"
 rand = "0.7"
