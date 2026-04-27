@@ -190,11 +190,7 @@ fn unpickle_archipelago_data(c: &mut Criterion) {
         b.iter(|| {
             let _: Save = serde_pickle::de::from_slice(
                 black_box(save.as_slice()),
-                DeOptions::new()
-                    .decode_strings()
-                    .keep_restore_state()
-                    .replace_unresolved_globals()
-                    .replace_recursive_structures(),
+                DeOptions::new().decode_strings().replace_unresolved_globals(),
             )
             .unwrap();
         })
