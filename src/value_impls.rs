@@ -59,12 +59,12 @@ impl<'de> de::Deserialize<'de> for Value {
 
             #[inline]
             fn visit_str<E: de::Error>(self, value: &str) -> StdResult<Value, E> {
-				Ok(Value::String(value.into()))
+                Ok(Value::String(value.into()))
             }
 
             #[inline]
             fn visit_string<E: de::Error>(self, value: String) -> StdResult<Value, E> {
-				self.visit_str(value.as_str())
+                self.visit_str(value.as_str())
             }
 
             #[inline]
@@ -154,12 +154,12 @@ impl<'de> de::Deserialize<'de> for HashableValue {
 
             #[inline]
             fn visit_str<E: de::Error>(self, value: &str) -> StdResult<HashableValue, E> {
-				Ok(HashableValue::String(value.into()))
+                Ok(HashableValue::String(value.into()))
             }
 
             #[inline]
             fn visit_string<E: de::Error>(self, value: String) -> StdResult<HashableValue, E> {
-				self.visit_str(value.as_str())
+                self.visit_str(value.as_str())
             }
 
             #[inline]
@@ -242,6 +242,21 @@ impl<'de: 'a, 'a> de::Deserializer<'de> for &'a mut Deserializer {
                 let len = v.len();
                 visitor.visit_seq(SeqDeserializer { de: self, iter: v.into_iter(), len })
             }
+            Value::Tuple1(v) => visitor.visit_seq(SeqDeserializer {
+                de: self,
+                len: v.0.len(),
+                iter: v.0.into_iter().map(Into::into),
+            }),
+            Value::Tuple2(v) => visitor.visit_seq(SeqDeserializer {
+                de: self,
+                len: v.0.len(),
+                iter: v.0.into_iter().map(Into::into),
+            }),
+            Value::Tuple3(v) => visitor.visit_seq(SeqDeserializer {
+                de: self,
+                len: v.0.len(),
+                iter: v.0.into_iter().map(Into::into),
+            }),
             Value::Tuple(v) => {
                 visitor.visit_seq(SeqDeserializer { de: self, len: v.len(), iter: v.into_iter() })
             }
@@ -352,13 +367,13 @@ impl<'de: 'a, 'a> de::VariantAccess<'de> for &'a mut Deserializer {
     }
 }
 
-struct SeqDeserializer<'a> {
+struct SeqDeserializer<'a, I: Iterator<Item = Value>> {
     de: &'a mut Deserializer,
-    iter: vec::IntoIter<Value>,
+    iter: I,
     len: usize,
 }
 
-impl<'de: 'a, 'a> de::SeqAccess<'de> for SeqDeserializer<'a> {
+impl<'de: 'a, 'a, I: Iterator<Item = Value>> de::SeqAccess<'de> for SeqDeserializer<'a, I> {
     type Error = Error;
 
     fn next_element_seed<T: de::DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {

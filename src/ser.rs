@@ -111,6 +111,15 @@ impl<W: io::Write> Serializer<W> {
             HashableValue::String(ref s) => self.serialize_str(s),
             HashableValue::Int(ref i) => self.serialize_bigint(i),
             HashableValue::FrozenSet(ref s) => self.serialize_set(s, b"frozenset"),
+            HashableValue::Tuple1(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_hashable_value(&(*v).into()))
+            }
+            HashableValue::Tuple2(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_hashable_value(&(*v).into()))
+            }
+            HashableValue::Tuple3(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_hashable_value(&(*v).into()))
+            }
             HashableValue::Tuple(ref t) => {
                 self.serialize_tuplevalue(t, |slf, v| slf.serialize_hashable_value(v))
             }
@@ -155,6 +164,15 @@ impl<W: io::Write> Serializer<W> {
 
             // Others
             Value::Int(ref i) => self.serialize_bigint(i),
+            Value::Tuple1(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_value(&(*v).into()))
+            }
+            Value::Tuple2(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_value(&(*v).into()))
+            }
+            Value::Tuple3(ref t) => {
+                self.serialize_tuplevalue(t.0.as_slice(), |slf, v| slf.serialize_value(&(*v).into()))
+            }
             Value::Tuple(ref t) => self.serialize_tuplevalue(t, |slf, v| slf.serialize_value(v)),
             Value::Set(ref s) => self.serialize_set(s, b"set"),
             Value::FrozenSet(ref s) => self.serialize_set(s, b"frozenset"),

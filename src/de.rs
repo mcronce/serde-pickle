@@ -30,6 +30,7 @@ use std::vec;
 use super::consts::*;
 use super::error::{Error, ErrorCode, Result};
 use super::value;
+use super::value::{SmallTuple, SmallValue};
 
 type MemoId = u32;
 
@@ -66,6 +67,9 @@ enum Value {
     Bytes(Vec<u8>),
     String(CompactString),
     List(Vec<Value>),
+    Tuple1(SmallTuple<1>),
+    Tuple2(SmallTuple<2>),
+    Tuple3(SmallTuple<3>),
     Tuple(Vec<Value>),
     Set(Vec<Value>),
     FrozenSet(Vec<Value>),
@@ -404,18 +408,30 @@ impl<R: Read> Deserializer<R> {
                 EMPTY_TUPLE => self.stack.push(Value::Tuple(Vec::new())),
                 TUPLE1 => {
                     let item = self.pop()?;
-                    self.stack.push(Value::Tuple(vec![item]));
+                    let value = match [item].try_into() {
+                        Ok(arr) => Value::Tuple1(arr),
+                        Err(arr) => Value::Tuple(arr.into()),
+                    };
+                    self.stack.push(value);
                 }
                 TUPLE2 => {
                     let item2 = self.pop()?;
                     let item1 = self.pop()?;
-                    self.stack.push(Value::Tuple(vec![item1, item2]));
+                    let value = match [item1, item2].try_into() {
+                        Ok(arr) => Value::Tuple2(arr),
+                        Err(arr) => Value::Tuple(arr.into()),
+                    };
+                    self.stack.push(value);
                 }
                 TUPLE3 => {
                     let item3 = self.pop()?;
                     let item2 = self.pop()?;
                     let item1 = self.pop()?;
-                    self.stack.push(Value::Tuple(vec![item1, item2, item3]));
+                    let value = match [item1, item2, item3].try_into() {
+                        Ok(arr) => Value::Tuple3(arr),
+                        Err(arr) => Value::Tuple(arr.into()),
+                    };
+                    self.stack.push(value);
                 }
                 TUPLE => {
                     let items = self.pop_mark()?;
@@ -490,6 +506,9 @@ impl<R: Read> Deserializer<R> {
                 }
                 REDUCE => {
                     let argtuple = match self.pop_resolve()? {
+                        Value::Tuple1(args) => args.0.into_iter().map(Value::from).collect(),
+                        Value::Tuple2(args) => args.0.into_iter().map(Value::from).collect(),
+                        Value::Tuple3(args) => args.0.into_iter().map(Value::from).collect(),
                         Value::Tuple(args) => args,
                         other => return Self::stack_error("tuple", &other, self.pos),
                     };
@@ -661,7 +680,7 @@ impl<R: Read> Deserializer<R> {
                     } else {
                         Err(Error::Syntax(ErrorCode::Recursive))
                     }
-                }
+                };
             }
         };
         count -= 1;
@@ -1165,6 +1184,9 @@ impl<R: Read> Deserializer<R> {
                 let new = v.into_iter().map(|v| self.convert_value(v)).collect::<Result<_>>();
                 Ok(value::Value::List(new?))
             }
+            Value::Tuple1(v) => Ok(value::Value::Tuple1(v)),
+            Value::Tuple2(v) => Ok(value::Value::Tuple2(v)),
+            Value::Tuple3(v) => Ok(value::Value::Tuple3(v)),
             Value::Tuple(v) => {
                 let new = v.into_iter().map(|v| self.convert_value(v)).collect::<Result<_>>();
                 Ok(value::Value::Tuple(new?))
@@ -1228,6 +1250,15 @@ impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for &'a mut Deserializer<R> {
             Value::List(v) => {
                 let len = v.len();
                 visitor.visit_seq(SeqAccess { de: self, iter: v.into_iter(), len })
+            }
+            Value::Tuple1(v) => {
+                visitor.visit_seq(SeqAccess { len: 1, iter: v.0.into_iter().map(|v| v.into()), de: self })
+            }
+            Value::Tuple2(v) => {
+                visitor.visit_seq(SeqAccess { len: 2, iter: v.0.into_iter().map(|v| v.into()), de: self })
+            }
+            Value::Tuple3(v) => {
+                visitor.visit_seq(SeqAccess { len: 3, iter: v.0.into_iter().map(|v| v.into()), de: self })
             }
             Value::Tuple(v) => visitor.visit_seq(SeqAccess { len: v.len(), iter: v.into_iter(), de: self }),
             Value::Set(v) | Value::FrozenSet(v) => {
@@ -1363,13 +1394,13 @@ impl<'de: 'a, 'a, R: Read + 'a> de::VariantAccess<'de> for VariantAccess<'a, R> 
     }
 }
 
-struct SeqAccess<'a, R: Read + 'a> {
+struct SeqAccess<'a, R: Read + 'a, I: Iterator<Item = Value>> {
     de: &'a mut Deserializer<R>,
-    iter: vec::IntoIter<Value>,
+    iter: I,
     len: usize,
 }
 
-impl<'de: 'a, 'a, R: Read> de::SeqAccess<'de> for SeqAccess<'a, R> {
+impl<'de: 'a, 'a, R: Read, I: Iterator<Item = Value>> de::SeqAccess<'de> for SeqAccess<'a, R, I> {
     type Error = Error;
 
     fn next_element_seed<T: de::DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
@@ -1465,6 +1496,47 @@ where
     I: FusedIterator<Item = E>,
 {
     value_from_reader(IterRead::new(it), options)
+}
+
+impl From<SmallValue> for Value {
+    #[inline]
+    fn from(v: SmallValue) -> Self {
+        match v {
+            SmallValue::None => Self::None,
+            SmallValue::Bool(v) => Self::Bool(v),
+            SmallValue::I32(v) => Self::I64(v.into()),
+            //SmallValue::F64(v) => Self::F64(v.into_inner())
+        }
+    }
+}
+
+impl TryFrom<&Value> for SmallValue {
+    type Error = ();
+    #[inline]
+    fn try_from(value: &Value) -> core::result::Result<Self, Self::Error> {
+        match value {
+            Value::None => Ok(Self::None),
+            Value::Bool(v) => Ok(Self::Bool(*v)),
+            Value::I64(v) => (*v).try_into().map(Self::I32).map_err(|_| ()),
+            //Value::F64(v) => (*v).try_into().map(Self::F64).map_err(|_| ()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<const N: usize> TryFrom<[Value; N]> for SmallTuple<N> {
+    type Error = [Value; N];
+    #[inline]
+    fn try_from(input: [Value; N]) -> core::result::Result<Self, Self::Error> {
+        let mut output = [SmallValue::None; N];
+        for i in 0..N {
+            output[i] = match SmallValue::try_from(&input[i]) {
+                Ok(v) => v,
+                Err(_) => return Err(input),
+            };
+        }
+        Ok(Self(output))
+    }
 }
 
 #[cfg(test)]

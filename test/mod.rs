@@ -15,7 +15,7 @@ macro_rules! pyobj {
     (f=$f:expr)  => { Value::F64($f) };
     (bb=$b:expr) => { Value::Bytes($b.to_vec()) };
     (s=$s:expr)  => { Value::String($s.into()) };
-    (t=($($m:ident=$v:tt),*))  => { Value::Tuple(vec![$(pyobj!($m=$v)),*]) };
+    (t=($($m:ident=$v:tt),*))  => { Value::construct_tuple(&[$(pyobj!($m=$v)),*]) };
     (l=[$($m:ident=$v:tt),*])  => { Value::List(vec![$(pyobj!($m=$v)),*]) };
     (ss=($($m:ident=$v:tt),*)) => { Value::Set(BTreeSet::from_iter(vec![$(hpyobj!($m=$v)),*])) };
     (fs=($($m:ident=$v:tt),*)) => { Value::FrozenSet(BTreeSet::from_iter(vec![$(hpyobj!($m=$v)),*])) };
@@ -33,7 +33,7 @@ macro_rules! hpyobj {
     (f=$f:expr)  => { HashableValue::F64($f) };
     (bb=$b:expr) => { HashableValue::Bytes($b.to_vec()) };
     (s=$s:expr)  => { HashableValue::String($s.into()) };
-    (t=($($m:ident=$v:tt),*))  => { HashableValue::Tuple(vec![$(hpyobj!($m=$v)),*]) };
+    (t=($($m:ident=$v:tt),*))  => { HashableValue::construct_tuple(&[$(hpyobj!($m=$v)),*]) };
     (fs=($($m:ident=$v:tt),*)) => { HashableValue::FrozenSet(BTreeSet::from_iter(vec![$(hpyobj!($m=$v)),*])) };
 }
 
@@ -379,7 +379,7 @@ mod value_tests {
             assert_eq!(original, tripped);
         }
         QuickCheck::new()
-            .gen(StdGen::new(thread_rng(), 10))
+            .r#gen(StdGen::new(thread_rng(), 10))
             .tests(5000)
             .quickcheck(roundtrip as fn(_));
     }
@@ -427,6 +427,9 @@ mod value_tests {
 
     #[test]
     fn test_value_stack_size() {
+        use crate::value::SmallValue;
+
+        assert_eq!(core::mem::size_of::<SmallValue>(), 8);
         assert_eq!(core::mem::size_of::<Value>(), 32);
         assert_eq!(core::mem::size_of::<HashableValue>(), 32);
     }

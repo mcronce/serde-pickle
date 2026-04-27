@@ -6,6 +6,7 @@
 
 //! QuickCheck Arbitrary instance for Value, and associated helpers.
 
+use crate::value::{SmallTuple, SmallValue};
 use crate::{HashableValue, Value};
 use num_bigint::BigInt;
 use quickcheck::{empty_shrinker, Arbitrary, Gen};
@@ -14,7 +15,7 @@ use rand::Rng;
 const MAX_DEPTH: u32 = 1;
 
 fn gen_value<G: Gen>(g: &mut G, depth: u32) -> Value {
-    let upper = if depth > 0 { 12 } else { 7 };
+    let upper = if depth > 0 { 14 } else { 7 };
     match g.gen_range(0, upper) {
         // leaves
         0 => Value::None,
@@ -26,10 +27,12 @@ fn gen_value<G: Gen>(g: &mut G, depth: u32) -> Value {
         6 => Value::String(String::arbitrary(g).into()),
         // recursive variants
         7 => Value::List(gen_vec(g, depth - 1)),
-        8 => Value::Tuple(gen_vec(g, depth - 1)),
-        9 => Value::Set(gen_hvec(g, depth - 1).into_iter().collect()),
-        10 => Value::FrozenSet(gen_hvec(g, depth - 1).into_iter().collect()),
-        11 => {
+        8 => Value::Tuple1(Arbitrary::arbitrary(g)),
+        9 => Value::Tuple2(Arbitrary::arbitrary(g)),
+        10 => Value::Tuple(gen_vec(g, depth - 1)),
+        11 => Value::Set(gen_hvec(g, depth - 1).into_iter().collect()),
+        12 => Value::FrozenSet(gen_hvec(g, depth - 1).into_iter().collect()),
+        13 => {
             let kvec = gen_hvec(g, depth - 1);
             let vvec = gen_vec(g, depth - 1);
             Value::Dict(kvec.into_iter().zip(vvec).collect())
@@ -41,8 +44,8 @@ fn gen_value<G: Gen>(g: &mut G, depth: u32) -> Value {
 fn gen_bigint<G: Gen>(g: &mut G) -> BigInt {
     // We have to construct a value outside of i64 range, since other values
     // are unpickled as i64s instead of big ints.
-    let offset = BigInt::from(2) * BigInt::from(if g.gen() { i64::MIN } else { i64::MAX });
-    offset + BigInt::from(g.gen::<i64>())
+    let offset = BigInt::from(2) * BigInt::from(if g.r#gen() { i64::MIN } else { i64::MAX });
+    offset + BigInt::from(g.r#gen::<i64>())
 }
 
 fn gen_vec<G: Gen>(g: &mut G, depth: u32) -> Vec<Value> {
@@ -84,6 +87,25 @@ fn gen_hvec<G: Gen>(g: &mut G, depth: u32) -> Vec<HashableValue> {
     (0..size).map(|_| gen_hvalue(g, depth)).collect()
 }
 
+impl Arbitrary for SmallValue {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        match g.gen_range(0, 3) {
+            // leaves
+            0 => SmallValue::None,
+            1 => SmallValue::Bool(Arbitrary::arbitrary(g)),
+            2 => SmallValue::I32(Arbitrary::arbitrary(g)),
+            //3 => SmallValue::F64(f64::arbitrary(g).try_into().unwrap_or_default()),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<const N: usize> Arbitrary for SmallTuple<N> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        Self(core::array::from_fn(|_| Arbitrary::arbitrary(g)))
+    }
+}
+
 impl Arbitrary for Value {
     fn arbitrary<G: Gen>(g: &mut G) -> Value {
         gen_value(g, MAX_DEPTH)
@@ -101,7 +123,10 @@ impl Arbitrary for Value {
                 Box::new(Arbitrary::shrink(&v.to_string()).map(Into::into).map(Value::String))
             }
             Value::List(ref v) => Box::new(Arbitrary::shrink(v).map(Value::List)),
-            Value::Tuple(ref v) => Box::new(Arbitrary::shrink(v).map(Value::List)),
+            Value::Tuple1(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Tuple1)),
+            Value::Tuple2(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Tuple2)),
+            Value::Tuple3(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Tuple3)),
+            Value::Tuple(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Tuple)),
             Value::Set(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Set)),
             Value::FrozenSet(ref v) => Box::new(Arbitrary::shrink(v).map(Value::FrozenSet)),
             Value::Dict(ref v) => Box::new(Arbitrary::shrink(v).map(Value::Dict)),
@@ -125,6 +150,9 @@ impl Arbitrary for HashableValue {
             HashableValue::String(ref v) => {
                 Box::new(Arbitrary::shrink(&v.to_string()).map(Into::into).map(HashableValue::String))
             }
+            HashableValue::Tuple1(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Tuple1)),
+            HashableValue::Tuple2(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Tuple2)),
+            HashableValue::Tuple3(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Tuple3)),
             HashableValue::Tuple(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::Tuple)),
             HashableValue::FrozenSet(ref v) => Box::new(Arbitrary::shrink(v).map(HashableValue::FrozenSet)),
         }
