@@ -127,10 +127,10 @@ pub struct Deserializer<R: BufRead> {
     rdr: R,
     options: DeOptions,
     pos: usize,
-    value: Option<Value>,                 // next value to deserialize
-    memo: HashMap<MemoId, (Value, i32)>,  // pickle memo (value, number of refs)
-    stack: Vec<Value>,                    // topmost items on the stack
-    stacks: Vec<Vec<Value>>,              // items further down the stack, between MARKs
+    value: Option<Value>,                // next value to deserialize
+    memo: HashMap<MemoId, (Value, i32)>, // pickle memo (value, number of refs)
+    stack: Vec<Value>,                   // topmost items on the stack
+    stacks: Vec<Vec<Value>>,             // items further down the stack, between MARKs
     reusable_buffer: Vec<u8>,
 }
 
