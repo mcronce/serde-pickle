@@ -428,5 +428,6 @@ mod value_tests {
     #[test]
     fn test_value_stack_size() {
         assert_eq!(core::mem::size_of::<Value>(), 32);
+        assert_eq!(core::mem::size_of::<HashableValue>(), 32);
     }
 }

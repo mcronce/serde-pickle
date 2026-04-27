@@ -1466,3 +1466,12 @@ where
 {
     value_from_reader(IterRead::new(it), options)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_value_stack_size() {
+        use super::Value;
+        assert_eq!(core::mem::size_of::<Value>(), 32);
+    }
+}
