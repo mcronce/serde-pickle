@@ -123,8 +123,8 @@ impl DeOptions {
 }
 
 /// Decodes pickle streams into values.
-pub struct Deserializer<R: Read> {
-    rdr: BufReader<R>,
+pub struct Deserializer<R: BufRead> {
+    rdr: R,
     options: DeOptions,
     pos: usize,
     value: Option<Value>,                 // next value to deserialize
@@ -134,11 +134,11 @@ pub struct Deserializer<R: Read> {
     reusable_buffer: Vec<u8>,
 }
 
-impl<R: Read> Deserializer<R> {
+impl<R: BufRead> Deserializer<R> {
     /// Construct a new Deserializer.
     pub fn new(rdr: R, options: DeOptions) -> Deserializer<R> {
         Deserializer {
-            rdr: BufReader::new(rdr),
+            rdr,
             pos: 0,
             value: None,
             memo: HashMap::new(),
@@ -163,19 +163,19 @@ impl<R: Read> Deserializer<R> {
     /// objects from a single stream.
     ///
     /// ```
-    /// # use std::io::Read;
+    /// # use std::io::{BufReader, Read};
     /// # use serde_pickle::{Deserializer, Result, DeOptions};
     /// # use serde::Deserialize;
     /// struct PickleReader<R: Read + Sized>
     /// {
-    ///     de: Deserializer<R>,
+    ///     de: Deserializer<BufReader<R>>,
     /// }
     ///
     /// impl<R: Read + Sized> PickleReader<R>
     /// {
     ///    fn new(reader: R) -> PickleReader<R> {
     ///        PickleReader {
-    ///            de: Deserializer::new(reader, DeOptions::new()),
+    ///            de: Deserializer::new(BufReader::new(reader), DeOptions::new()),
     ///        }
     ///    }
     ///
@@ -1228,7 +1228,7 @@ impl<R: Read> Deserializer<R> {
     }
 }
 
-impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for &'a mut Deserializer<R> {
+impl<'de: 'a, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
@@ -1315,11 +1315,11 @@ impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for &'a mut Deserializer<R> {
     }
 }
 
-struct VariantAccess<'a, R: Read + 'a> {
+struct VariantAccess<'a, R: BufRead + 'a> {
     de: &'a mut Deserializer<R>,
 }
 
-impl<'de: 'a, 'a, R: Read + 'a> de::EnumAccess<'de> for VariantAccess<'a, R> {
+impl<'de: 'a, 'a, R: BufRead + 'a> de::EnumAccess<'de> for VariantAccess<'a, R> {
     type Error = Error;
     type Variant = Self;
 
@@ -1372,7 +1372,7 @@ impl<'de: 'a, 'a, R: Read + 'a> de::EnumAccess<'de> for VariantAccess<'a, R> {
     }
 }
 
-impl<'de: 'a, 'a, R: Read + 'a> de::VariantAccess<'de> for VariantAccess<'a, R> {
+impl<'de: 'a, 'a, R: BufRead + 'a> de::VariantAccess<'de> for VariantAccess<'a, R> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<()> {
@@ -1394,13 +1394,13 @@ impl<'de: 'a, 'a, R: Read + 'a> de::VariantAccess<'de> for VariantAccess<'a, R> 
     }
 }
 
-struct SeqAccess<'a, R: Read + 'a, I: Iterator<Item = Value>> {
+struct SeqAccess<'a, R: BufRead + 'a, I: Iterator<Item = Value>> {
     de: &'a mut Deserializer<R>,
     iter: I,
     len: usize,
 }
 
-impl<'de: 'a, 'a, R: Read, I: Iterator<Item = Value>> de::SeqAccess<'de> for SeqAccess<'a, R, I> {
+impl<'de: 'a, 'a, R: BufRead, I: Iterator<Item = Value>> de::SeqAccess<'de> for SeqAccess<'a, R, I> {
     type Error = Error;
 
     fn next_element_seed<T: de::DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
@@ -1419,14 +1419,14 @@ impl<'de: 'a, 'a, R: Read, I: Iterator<Item = Value>> de::SeqAccess<'de> for Seq
     }
 }
 
-struct MapAccess<'a, R: Read + 'a> {
+struct MapAccess<'a, R: BufRead + 'a> {
     de: &'a mut Deserializer<R>,
     iter: vec::IntoIter<(Value, Value)>,
     value: Option<Value>,
     len: usize,
 }
 
-impl<'de: 'a, 'a, R: Read> de::MapAccess<'de> for MapAccess<'a, R> {
+impl<'de: 'a, 'a, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
     type Error = Error;
 
     fn next_key_seed<T: de::DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
@@ -1452,9 +1452,9 @@ impl<'de: 'a, 'a, R: Read> de::MapAccess<'de> for MapAccess<'a, R> {
     }
 }
 
-/// Decodes a value from a `std::io::Read`.
+/// Decodes a value from a `std::io::BufRead`.
 pub fn from_reader<'de, R: io::Read, T: de::Deserialize<'de>>(rdr: R, options: DeOptions) -> Result<T> {
-    let mut de = Deserializer::new(rdr, options);
+    let mut de = Deserializer::new(BufReader::new(rdr), options);
     let value = de::Deserialize::deserialize(&mut de)?;
     // Make sure the whole stream has been consumed.
     de.end()?;
@@ -1463,7 +1463,10 @@ pub fn from_reader<'de, R: io::Read, T: de::Deserialize<'de>>(rdr: R, options: D
 
 /// Decodes a value from a byte slice `&[u8]`.
 pub fn from_slice<'de, T: de::Deserialize<'de>>(v: &[u8], options: DeOptions) -> Result<T> {
-    from_reader(io::Cursor::new(v), options)
+    let mut de = Deserializer::new(v, options);
+    let value = de::Deserialize::deserialize(&mut de)?;
+    de.end()?;
+    Ok(value)
 }
 
 /// Decodes a value from any iterator supported as a reader.
@@ -1476,9 +1479,9 @@ where
     from_reader(IterRead::new(it), options)
 }
 
-/// Decodes a value from a `std::io::Read`.
+/// Decodes a value from a `std::io::BufRead`.
 pub fn value_from_reader<R: io::Read>(rdr: R, options: DeOptions) -> Result<value::Value> {
-    let mut de = Deserializer::new(rdr, options);
+    let mut de = Deserializer::new(BufReader::new(rdr), options);
     let value = de.deserialize_value()?;
     de.end()?;
     Ok(value)
@@ -1486,7 +1489,10 @@ pub fn value_from_reader<R: io::Read>(rdr: R, options: DeOptions) -> Result<valu
 
 /// Decodes a value from a byte slice `&[u8]`.
 pub fn value_from_slice(v: &[u8], options: DeOptions) -> Result<value::Value> {
-    value_from_reader(io::Cursor::new(v), options)
+    let mut de = Deserializer::new(v, options);
+    let value = de.deserialize_value()?;
+    de.end()?;
+    Ok(value)
 }
 
 /// Decodes a value from any iterator supported as a reader.
