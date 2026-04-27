@@ -433,4 +433,19 @@ mod value_tests {
         assert_eq!(core::mem::size_of::<Value>(), 32);
         assert_eq!(core::mem::size_of::<HashableValue>(), 32);
     }
+
+    #[test]
+    fn test_archipelago_save() {
+        let file = File::open("benches/data/archipelago-save.pickle").unwrap();
+        let unpickled = value_from_reader(
+            file,
+            DeOptions::new()
+                .decode_strings()
+                .keep_restore_state()
+                .replace_unresolved_globals()
+                .replace_recursive_structures(),
+        )
+        .unwrap();
+        dbg!(unpickled);
+    }
 }
